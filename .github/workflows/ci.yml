@@ -1,3 +1,5 @@
+name: Ci
+
 on:
   push:
     branches:
@@ -13,6 +15,9 @@ jobs:
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+
+      - name: Deno cache
+        run: deno cache deps.ts
 
       - name: Check format
         run: deno fmt --check
