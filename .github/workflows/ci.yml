@@ -30,5 +30,10 @@ jobs:
         run: deno fmt --check
 
       - name: Test
-        run: deno test
+        run: |
+          deno test --coverage=cov
+          deno coverage cov --lcov --output=cov.lcov
 
+      - uses: codecov/codecov-action@v3
+        with:
+          files: ./cov.lcov
