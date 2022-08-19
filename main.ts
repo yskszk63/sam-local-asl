@@ -1,8 +1,5 @@
-import {
-  path,
-} from "./deps.ts";
-
 import { parse as cfnParse } from "./cfn.ts";
+import { Options } from "./opts.ts";
 import type * as cfn from "./cfn.ts";
 
 async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSchema> {
@@ -36,8 +33,32 @@ async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSche
   }
 }
 
-function filterStateMachine(schema: cfn.CfnSchema): cfn.StateMachineResource[] {
-  return Object.entries(schema.Resources ?? []).flatMap(([_, v]) => v.Type === "AWS::Serverless::StateMachine" ? [v] : []);
+function filterStateMachine(schema: cfn.CfnSchema, target: string | null): cfn.StateMachineResource {
+  if (typeof schema.Resources === "undefined" || Object.entries(schema.Resources).length === 0) {
+    throw new Error("No Resources exists.");
+  }
+
+  if (target === null) {
+    const [candidate, ...rest] = Object.entries(schema.Resources).flatMap(([_, v]) => v.Type === "AWS::Serverless::StateMachine" ? [v] : []);
+    if (typeof candidate === "undefined") {
+    throw new Error("No StateMachine exists in Resources.");
+    }
+
+    if (rest.length > 0) {
+      throw new Error(`Please specify StateMachine in ${candidate}, ${rest.join(", ")}`);
+    }
+    return candidate;
+  }
+
+  const candidate = Object.entries(schema.Resources).find(([k, v]) => k === target && v.Type === "AWS::Serverless::StateMachine");
+  if (typeof candidate === "undefined") {
+    throw new Error(`No \`${target}\` exists in Resources.`);
+  }
+  const [_, result] = candidate;
+  if (result.Type !== "AWS::Serverless::StateMachine") {
+    throw new Error(); // bug
+  }
+  return result;
 }
 
 async function readAsl(base: URL, stateMachine: cfn.StateMachineResource): Promise<unknown> {
@@ -81,7 +102,7 @@ function expand(asl: unknown, stateMachine: cfn.StateMachineResource, template: 
   }
 
   if (typeof asl === "string") {
-    return expandString(asl, stateMachine, template); // TODO expand
+    return expandString(asl, stateMachine, template);
   }
 
   if (Array.isArray(asl)) {
@@ -103,20 +124,20 @@ function expand(asl: unknown, stateMachine: cfn.StateMachineResource, template: 
 }
 
 async function main() {
-  const [fname] = Deno.args; // TODO stdin
+  const opts = Options.from(Deno.args);
 
-  const base = path.toFileUrl(path.resolve(fname));
+  const template = await (async () => {
+    const fp = (await Deno.open(opts.template)).readable;
+    try {
+      return await readAsCfn(fp);
+    } finally {
+      await fp.cancel();
+    }
+  })();
 
-  let template;
-  const fp = (await Deno.open(base)).readable;
-  try {
-    template = await readAsCfn(fp);
-  } finally {
-    await fp.cancel();
-  }
-  const stateMachines = filterStateMachine(template);
-  const asl = await readAsl(base, stateMachines[0]);
-  const expanded = expand(asl, stateMachines[0], template);
+  const stateMachine = filterStateMachine(template, opts.target);
+  const asl = await readAsl(opts.template, stateMachine);
+  const expanded = expand(asl, stateMachine, template);
   console.log(JSON.stringify(expanded, null, 2));
 }
 
