@@ -16,6 +16,13 @@ jobs:
         with:
           deno-version: v1.x
 
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          key: ${{ runner.os }}-${{ hashFiles('deps.ts') }}
+          path: |
+            /home/runner/.cache/deno/deps/https
+
       - name: Deno cache
         run: deno cache deps.ts
 
