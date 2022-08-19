@@ -139,7 +139,9 @@ function expand(
   }
 
   const result: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(asl as Record<any, unknown>)) {
+  for (
+    const [key, val] of Object.entries(asl as Record<keyof unknown, unknown>)
+  ) {
     if (typeof key !== "string") {
       throw new Error();
     }

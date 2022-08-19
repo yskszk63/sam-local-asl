@@ -1,7 +1,7 @@
 import { path } from "./deps.ts";
 
 export class Options {
-  static usage(exit: number = -1): never {
+  static usage(exit = -1): never {
     const usage = `
 usage: %prog TEMPLATE [TARGET]
 
