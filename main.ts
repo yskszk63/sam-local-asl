@@ -1,72 +1,11 @@
-import * as path from "https://deno.land/std@0.152.0/path/mod.ts";
-import { yamlParse } from "https://esm.sh/yaml-cfn@0.3.1";
-import { z } from "https://deno.land/x/zod@v3.18.0/mod.ts";
+import {
+  path,
+} from "./deps.ts";
 
-type RawResource = {
-  Type: string;
-  Properties?: unknown | undefined;
-}
+import { parse as cfnParse } from "./cfn.ts";
+import type * as cfn from "./cfn.ts";
 
-type CfnGetAtt = {
-  "Fn::GetAtt": [string, string];
-}
-
-type CfnFunction = CfnGetAtt;
-
-type CfnScalar<T> = T | CfnFunction;
-
-type StateMachineResource = {
-  Type: "AWS::Serverless::StateMachine";
-  Properties: {
-    DefinitionUri: string;
-    DefinitionSubstitutions?: Record<string, CfnScalar<string>> | undefined;
-  }
-}
-
-type FunctionResource = {
-  Type: "AWS::Serverless::Function";
-}
-
-type ResolvedResource = StateMachineResource | FunctionResource;
-
-type CfnSchema<T = ResolvedResource> = {
-  Resources?: Record<string, T> | undefined;
-}
-
-const zRawResource: z.Schema<RawResource> = z.object({
-  Type: z.string(),
-  Properties: z.unknown().optional(),
-});
-
-const zCfnGetAtt: z.Schema<CfnGetAtt> = z.object({
-  "Fn::GetAtt": z.tuple([z.string(), z.string()]),
-});
-
-const zCfnFunction: z.Schema<CfnFunction> = zCfnGetAtt;
-
-function zCfnScalar<T extends z.Schema>(val: T): z.Schema<CfnScalar<z.infer<T>>> {
-  return z.union([val, zCfnFunction]);
-}
-
-const zStateMachineResource: z.Schema<StateMachineResource> = z.object({
-  Type: z.literal("AWS::Serverless::StateMachine"),
-  Properties: z.object({
-    DefinitionUri: z.string(),
-    DefinitionSubstitutions: z.record(z.string(), zCfnScalar(z.string())),
-  }),
-});
-
-const zFunctionResource: z.Schema<FunctionResource> = z.object({
-  Type: z.literal("AWS::Serverless::Function"),
-});
-
-const zResolvedResource: z.Schema<ResolvedResource> = z.union([zStateMachineResource, zFunctionResource]);
-
-const zRawCfnSchema: z.Schema<CfnSchema<RawResource>> = z.object({
-  Resources: z.record(z.string(), zRawResource).optional(),
-});
-
-async function parseAsCfn(input: ReadableStream<Uint8Array>): Promise<CfnSchema> {
+async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSchema> {
   const reader = input.getReader();
   try {
     const chunks = [];
@@ -86,23 +25,7 @@ async function parseAsCfn(input: ReadableStream<Uint8Array>): Promise<CfnSchema>
       }
 
       const text = await response.text();
-      const raw = zRawCfnSchema.parse(yamlParse(text));
-      if (typeof raw.Resources === "undefined") {
-        return {}
-      }
-
-      const filtered: Awaited<ReturnType<typeof parseAsCfn>> = {
-        Resources: {
-        },
-      }
-      for (const [k, v] of Object.entries(raw.Resources)) {
-        const parsed = zResolvedResource.safeParse(v);
-        if (!parsed.success) {
-          continue;
-        }
-        filtered.Resources![k] = parsed.data;
-      }
-      return filtered;
+      return cfnParse(text);
 
     } finally {
       URL.revokeObjectURL(blobUrl);
@@ -113,17 +36,17 @@ async function parseAsCfn(input: ReadableStream<Uint8Array>): Promise<CfnSchema>
   }
 }
 
-function filterStateMachine(schema: CfnSchema): StateMachineResource[] {
+function filterStateMachine(schema: cfn.CfnSchema): cfn.StateMachineResource[] {
   return Object.entries(schema.Resources ?? []).flatMap(([_, v]) => v.Type === "AWS::Serverless::StateMachine" ? [v] : []);
 }
 
-async function readAsl(base: URL, stateMachine: StateMachineResource): Promise<unknown> {
+async function readAsl(base: URL, stateMachine: cfn.StateMachineResource): Promise<unknown> {
   const uri = new URL(stateMachine.Properties.DefinitionUri, base);
   const asl = await Deno.readTextFile(uri);
   return JSON.parse(asl);
 }
 
-function expandString(val: string, stateMachine: StateMachineResource, template: CfnSchema): string {
+function expandString(val: string, stateMachine: cfn.StateMachineResource, template: cfn.CfnSchema): string {
   return val.replaceAll(/\$\{([^\}]*)\}/gm, (m, x) => {
     const sub = stateMachine.Properties.DefinitionSubstitutions;
     if (typeof sub === "undefined") {
@@ -152,7 +75,7 @@ function expandString(val: string, stateMachine: StateMachineResource, template:
   });
 }
 
-function expand(asl: unknown, stateMachine: StateMachineResource, template: CfnSchema): unknown {
+function expand(asl: unknown, stateMachine: cfn.StateMachineResource, template: cfn.CfnSchema): unknown {
   if (typeof asl === "number" || typeof asl === "boolean" || asl === null) {
     return asl;
   }
@@ -187,7 +110,7 @@ async function main() {
   let template;
   const fp = (await Deno.open(base)).readable;
   try {
-    template = await parseAsCfn(fp);
+    template = await readAsCfn(fp);
   } finally {
     await fp.cancel();
   }
