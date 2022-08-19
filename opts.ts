@@ -1,6 +1,4 @@
-import {
-  path,
-} from "./deps.ts";
+import { path } from "./deps.ts";
 
 export class Options {
   static usage(exit: number = -1): never {

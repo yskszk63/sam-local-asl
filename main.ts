@@ -2,7 +2,9 @@ import { parse as cfnParse } from "./cfn.ts";
 import { Options } from "./opts.ts";
 import type * as cfn from "./cfn.ts";
 
-async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSchema> {
+async function readAsCfn(
+  input: ReadableStream<Uint8Array>,
+): Promise<cfn.CfnSchema> {
   const reader = input.getReader();
   try {
     const chunks = [];
@@ -14,7 +16,9 @@ async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSche
       chunks.push(value);
     }
 
-    const blobUrl = URL.createObjectURL(new Blob(chunks, { type: "text/plain" }));
+    const blobUrl = URL.createObjectURL(
+      new Blob(chunks, { type: "text/plain" }),
+    );
     try {
       const response = await fetch(blobUrl);
       if (!response.ok) {
@@ -23,34 +27,44 @@ async function readAsCfn(input: ReadableStream<Uint8Array>): Promise<cfn.CfnSche
 
       const text = await response.text();
       return cfnParse(text);
-
     } finally {
       URL.revokeObjectURL(blobUrl);
     }
-
   } finally {
     reader.releaseLock();
   }
 }
 
-function filterStateMachine(schema: cfn.CfnSchema, target: string | null): cfn.StateMachineResource {
-  if (typeof schema.Resources === "undefined" || Object.entries(schema.Resources).length === 0) {
+function filterStateMachine(
+  schema: cfn.CfnSchema,
+  target: string | null,
+): cfn.StateMachineResource {
+  if (
+    typeof schema.Resources === "undefined" ||
+    Object.entries(schema.Resources).length === 0
+  ) {
     throw new Error("No Resources exists.");
   }
 
   if (target === null) {
-    const [candidate, ...rest] = Object.entries(schema.Resources).flatMap(([_, v]) => v.Type === "AWS::Serverless::StateMachine" ? [v] : []);
+    const [candidate, ...rest] = Object.entries(schema.Resources).flatMap((
+      [_, v],
+    ) => v.Type === "AWS::Serverless::StateMachine" ? [v] : []);
     if (typeof candidate === "undefined") {
-    throw new Error("No StateMachine exists in Resources.");
+      throw new Error("No StateMachine exists in Resources.");
     }
 
     if (rest.length > 0) {
-      throw new Error(`Please specify StateMachine in ${candidate}, ${rest.join(", ")}`);
+      throw new Error(
+        `Please specify StateMachine in ${candidate}, ${rest.join(", ")}`,
+      );
     }
     return candidate;
   }
 
-  const candidate = Object.entries(schema.Resources).find(([k, v]) => k === target && v.Type === "AWS::Serverless::StateMachine");
+  const candidate = Object.entries(schema.Resources).find(([k, v]) =>
+    k === target && v.Type === "AWS::Serverless::StateMachine"
+  );
   if (typeof candidate === "undefined") {
     throw new Error(`No \`${target}\` exists in Resources.`);
   }
@@ -61,13 +75,20 @@ function filterStateMachine(schema: cfn.CfnSchema, target: string | null): cfn.S
   return result;
 }
 
-async function readAsl(base: URL, stateMachine: cfn.StateMachineResource): Promise<unknown> {
+async function readAsl(
+  base: URL,
+  stateMachine: cfn.StateMachineResource,
+): Promise<unknown> {
   const uri = new URL(stateMachine.Properties.DefinitionUri, base);
   const asl = await Deno.readTextFile(uri);
   return JSON.parse(asl);
 }
 
-function expandString(val: string, stateMachine: cfn.StateMachineResource, template: cfn.CfnSchema): string {
+function expandString(
+  val: string,
+  stateMachine: cfn.StateMachineResource,
+  template: cfn.CfnSchema,
+): string {
   return val.replaceAll(/\$\{([^\}]*)\}/gm, (m, x) => {
     const sub = stateMachine.Properties.DefinitionSubstitutions;
     if (typeof sub === "undefined") {
@@ -96,7 +117,11 @@ function expandString(val: string, stateMachine: cfn.StateMachineResource, templ
   });
 }
 
-function expand(asl: unknown, stateMachine: cfn.StateMachineResource, template: cfn.CfnSchema): unknown {
+function expand(
+  asl: unknown,
+  stateMachine: cfn.StateMachineResource,
+  template: cfn.CfnSchema,
+): unknown {
   if (typeof asl === "number" || typeof asl === "boolean" || asl === null) {
     return asl;
   }

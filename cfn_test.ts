@@ -24,7 +24,7 @@ Resources:
           DefinitionUri: "test.asl.json",
         },
       },
-    }
+    },
   });
 });
 
@@ -61,7 +61,7 @@ Resources:
           },
         },
       },
-    }
+    },
   });
 });
 
@@ -87,7 +87,7 @@ Resources:
       Lambda: {
         Type: "AWS::Serverless::Function",
       },
-    }
+    },
   });
 });
 
@@ -109,7 +109,6 @@ Resources:
   `;
   const result = parse(yaml);
   assertEquals(result, {
-    Resources: {}
+    Resources: {},
   });
 });
-

@@ -1,16 +1,13 @@
-import {
-  z,
-  yamlParse,
-} from "./deps.ts";
+import { yamlParse, z } from "./deps.ts";
 
 type RawResource = {
   Type: string;
   Properties?: unknown | undefined;
-}
+};
 
 type CfnGetAtt = {
   "Fn::GetAtt": [string, string];
-}
+};
 
 type CfnFunction = CfnGetAtt;
 
@@ -21,18 +18,18 @@ export type StateMachineResource = {
   Properties: {
     DefinitionUri: string;
     DefinitionSubstitutions?: Record<string, CfnScalar<string>> | undefined;
-  }
-}
+  };
+};
 
 type FunctionResource = {
   Type: "AWS::Serverless::Function";
-}
+};
 
 type ResolvedResource = StateMachineResource | FunctionResource;
 
 export type CfnSchema<T = ResolvedResource> = {
   Resources?: Record<string, T> | undefined;
-}
+};
 
 const zRawResource: z.Schema<RawResource> = z.object({
   Type: z.string(),
@@ -45,7 +42,9 @@ const zCfnGetAtt: z.Schema<CfnGetAtt> = z.object({
 
 const zCfnFunction: z.Schema<CfnFunction> = zCfnGetAtt;
 
-function zCfnScalar<T extends z.Schema>(val: T): z.Schema<CfnScalar<z.infer<T>>> {
+function zCfnScalar<T extends z.Schema>(
+  val: T,
+): z.Schema<CfnScalar<z.infer<T>>> {
   return z.union([val, zCfnFunction]);
 }
 
@@ -53,7 +52,8 @@ const zStateMachineResource: z.Schema<StateMachineResource> = z.object({
   Type: z.literal("AWS::Serverless::StateMachine"),
   Properties: z.object({
     DefinitionUri: z.string(),
-    DefinitionSubstitutions: z.record(z.string(), zCfnScalar(z.string())).optional(),
+    DefinitionSubstitutions: z.record(z.string(), zCfnScalar(z.string()))
+      .optional(),
   }),
 });
 
@@ -61,7 +61,10 @@ const zFunctionResource: z.Schema<FunctionResource> = z.object({
   Type: z.literal("AWS::Serverless::Function"),
 });
 
-const zResolvedResource: z.Schema<ResolvedResource> = z.union([zStateMachineResource, zFunctionResource]);
+const zResolvedResource: z.Schema<ResolvedResource> = z.union([
+  zStateMachineResource,
+  zFunctionResource,
+]);
 
 const zRawCfnSchema: z.Schema<CfnSchema<RawResource>> = z.object({
   Resources: z.record(z.string(), zRawResource).optional(),
@@ -72,13 +75,12 @@ export function parse(text: string): CfnSchema {
   const parsed = zRawCfnSchema.parse(yaml);
 
   if (typeof parsed.Resources === "undefined") {
-    return {}
+    return {};
   }
 
   const filtered: ReturnType<typeof parse> = {
-    Resources: {
-    },
-  }
+    Resources: {},
+  };
   for (const [k, v] of Object.entries(parsed.Resources)) {
     const parsed = zResolvedResource.safeParse(v);
     if (!parsed.success) {
