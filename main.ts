@@ -109,7 +109,7 @@ async function parseAsCfn(input: ReadableStream<Uint8Array>): Promise<CfnSchema>
     }
 
   } finally {
-    await reader.cancel();
+    reader.releaseLock();
   }
 }
 
@@ -123,13 +123,78 @@ async function readAsl(base: URL, stateMachine: StateMachineResource): Promise<u
   return JSON.parse(asl);
 }
 
-async function main() {
-  const fname = path.toFileUrl("xxx");
+function expandString(val: string, stateMachine: StateMachineResource, template: CfnSchema): string {
+  return val.replaceAll(/\$\{([^\}]*)\}/gm, (m, x) => {
+    const sub = stateMachine.Properties.DefinitionSubstitutions;
+    if (typeof sub === "undefined") {
+      return m;
+    }
+    const val = sub[x];
+    if (typeof val === "undefined") {
+      return m;
+    }
+    if (typeof val === "string") {
+      return val;
+    }
 
-  const template = await parseAsCfn(Deno.stdin.readable);
+    const [res, attr] = val["Fn::GetAtt"];
+    if (attr !== "Arn") {
+      return m;
+    }
+    const item = (template.Resources ?? {})[res];
+    if (typeof item === "undefined") {
+      return m;
+    }
+
+    const region = "us-east-1";
+    const account = "123456789012";
+    return `arn:aws:lambda:${region}:${account}:function:${x}`;
+  });
+}
+
+function expand(asl: unknown, stateMachine: StateMachineResource, template: CfnSchema): unknown {
+  if (typeof asl === "number" || typeof asl === "boolean" || asl === null) {
+    return asl;
+  }
+
+  if (typeof asl === "string") {
+    return expandString(asl, stateMachine, template); // TODO expand
+  }
+
+  if (Array.isArray(asl)) {
+    const result = [];
+    for (const item of asl) {
+      result.push(expand(item, stateMachine, template));
+    }
+    return result;
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(asl as Record<any, unknown>)) {
+    if (typeof key !== "string") {
+      throw new Error();
+    }
+    result[key] = expand(val, stateMachine, template);
+  }
+  return result;
+}
+
+async function main() {
+  const [fname] = Deno.args; // TODO stdin
+
+  const base = path.toFileUrl(path.resolve(fname));
+
+  let template;
+  const fp = (await Deno.open(base)).readable;
+  try {
+    template = await parseAsCfn(fp);
+  } finally {
+    await fp.cancel();
+  }
   const stateMachines = filterStateMachine(template);
-  const asl = await readAsl(fname, stateMachines[0]);
-  console.log(JSON.stringify(asl, null, 2));
+  const asl = await readAsl(base, stateMachines[0]);
+  const expanded = expand(asl, stateMachines[0], template);
+  console.log(JSON.stringify(expanded, null, 2));
 }
 
 main().catch(console.error);
