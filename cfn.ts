@@ -53,7 +53,7 @@ const zStateMachineResource: z.Schema<StateMachineResource> = z.object({
   Type: z.literal("AWS::Serverless::StateMachine"),
   Properties: z.object({
     DefinitionUri: z.string(),
-    DefinitionSubstitutions: z.record(z.string(), zCfnScalar(z.string())),
+    DefinitionSubstitutions: z.record(z.string(), zCfnScalar(z.string())).optional(),
   }),
 });
 
